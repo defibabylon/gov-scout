@@ -1,0 +1,3 @@
+# gov-scout has no third-party dependencies.
+# Uses Python stdlib only: urllib, json, os, pathlib, datetime.
+# Python 3.9+ required.
