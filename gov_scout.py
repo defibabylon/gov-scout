@@ -98,6 +98,8 @@ query($governorId: AccountID!, $limit: Int!) {
 }
 """
 
+ACTIVE_TALLY_STATUSES = {"active", "pending", "queued"}
+
 def fetch_tally_proposals(governor_id: str, limit: int = 5) -> list[dict]:
     if not TALLY_API_KEY:
         return []
@@ -107,7 +109,8 @@ def fetch_tally_proposals(governor_id: str, limit: int = 5) -> list[dict]:
             {"query": TALLY_QUERY, "variables": {"governorId": governor_id, "limit": limit}},
             headers={"Api-Key": TALLY_API_KEY},
         )
-        return result.get("data", {}).get("proposals", {}).get("nodes", [])
+        nodes = result.get("data", {}).get("proposals", {}).get("nodes", [])
+        return [n for n in nodes if n.get("status") in ACTIVE_TALLY_STATUSES]
     except Exception as e:
         print(f"[WARN] Tally {governor_id}: {e}", file=sys.stderr)
         return []
