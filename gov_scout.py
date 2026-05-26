@@ -44,11 +44,8 @@ TODAY = NOW.strftime("%Y-%m-%d")
 
 def _post_json(url: str, payload: dict, headers: dict = {}) -> dict:
     data = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data, headers={
-        "Content-Type": "application/json",
-        "User-Agent": "gov-scout/1.0",
-        **headers,
-    })
+    base_headers = {"Content-Type": "application/json", "User-Agent": "gov-scout/1.0"}
+    req = urllib.request.Request(url, data=data, headers={**base_headers, **headers})
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read().decode())
 
@@ -68,31 +65,46 @@ def fetch_snapshot_proposals(space_id: str, limit: int = 5) -> list[dict]:
     }
     """
     try:
-        result = _post_json(SNAPSHOT_URL, {"query": query, "variables": {"space": space_id, "limit": limit}})
+        result = _post_json(
+            SNAPSHOT_URL,
+            {"query": query, "variables": {"space": space_id, "limit": limit}},
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                "Origin": "https://snapshot.org",
+                "Referer": "https://snapshot.org/",
+            },
+        )
         return result.get("data", {}).get("proposals", [])
     except Exception as e:
         print(f"[WARN] Snapshot {space_id}: {e}", file=sys.stderr)
         return []
 
 
-def fetch_tally_proposals(governor_id: str, limit: int = 3) -> list[dict]:
-    if not TALLY_API_KEY:
-        return []
-    url = "https://api.tally.xyz/query"
-    query = """
-    query($governorId: AccountID!, $limit: Int!) {
-      proposals(chainId: "eip155:1", governorId: $governorId, pagination: {limit: $limit}) {
-        nodes {
-          id title status eta
-          voteStats { support weight percent }
-        }
+TALLY_QUERY = """
+query($governorId: AccountID!, $limit: Int!) {
+  proposals(input: {
+    filters: { governorId: $governorId },
+    page: { limit: $limit }
+  }) {
+    nodes {
+      ... on Proposal {
+        id
+        status
+        metadata { title }
+        voteStats { type percent votesCount }
       }
     }
-    """
+  }
+}
+"""
+
+def fetch_tally_proposals(governor_id: str, limit: int = 5) -> list[dict]:
+    if not TALLY_API_KEY:
+        return []
     try:
         result = _post_json(
-            url,
-            {"query": query, "variables": {"governorId": governor_id, "limit": limit}},
+            "https://api.tally.xyz/query",
+            {"query": TALLY_QUERY, "variables": {"governorId": governor_id, "limit": limit}},
             headers={"Api-Key": TALLY_API_KEY},
         )
         return result.get("data", {}).get("proposals", {}).get("nodes", [])
@@ -113,11 +125,11 @@ def fmt_snapshot_proposal(p: dict, protocol: str) -> str:
 
 
 def fmt_tally_proposal(p: dict, protocol: str) -> str:
-    title = p.get("title", "Untitled")[:80]
+    title = (p.get("metadata") or {}).get("title", "Untitled").strip().lstrip("#").strip()[:80]
     status = p.get("status", "?")
     stats = p.get("voteStats", [])
     for stat in stats:
-        if stat.get("support") == "FOR":
+        if stat.get("type") == "for":
             pct = stat.get("percent", 0)
             return f"- **[{protocol}]** {title} | {status} | {pct:.1f}% FOR"
     return f"- **[{protocol}]** {title} | {status}"
